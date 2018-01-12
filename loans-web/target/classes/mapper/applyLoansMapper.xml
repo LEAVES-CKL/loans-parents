@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.lxit.loans.dao.ApplyLoansDao">
+	<insert id="insertLoans" parameterType="com.lxit.p2p.bean.Applyloans">
+		insert into
+		applyloans(userId,type,money,deadline,rate,purpose,`describe`,way,state,time,creationTime)
+		values(#{user.userId},#{type},#{money},#{deadline},#{rate},#{purpose},#{describe},#{way},#{state},Now(),Now())
+	</insert>
+	<select id="queryLoansByState" resultType="com.lxit.p2p.bean.Applyloans"
+		parameterType="java.util.Map">
+		select
+		id as
+		applyLoansId,userId,type,purpose,money,deadline,rate,way,time,state,startTime,fullTime,loanTime
+		from applyloans where state=#{state} and userId=#{userId}
+		limit
+		#{pageIndex},#{pageSize}
+	</select>
+	<select id="sumCount" resultType="long" parameterType="java.util.Map">
+		select
+		count(1) from applyLoans where state=#{state} and userId=#{userId}
+	</select>
+	<select id="queryLoansById" resultType="com.lxit.p2p.bean.Applyloans"
+		parameterType="int">
+		select id as
+		applyLoansId,userId,type,money,deadline,rate,purpose,`describe`,way,state,time,startTime,fullTime,loanTime
+		from applyloans where id=#{applyId}
+	</select>
+
+	<!-- 还款表查询 -->
+	<select id="queryRepayLoans" resultType="com.lxit.p2p.bean.Refundplan"
+		parameterType="java.util.Map">
+		select
+		id as rid,loansId,round(money,0) as money,round(interest,0) as interest,periods,time as returnTime,type as
+		returnType,state,creater,creationTime,modificationTime,modifier,postscript,lastRepayDate
+		from refundplan
+		where loansId=#{applyId}
+		limit #{pageIndex},#{pageSize}
+	</select>
+	<select id="sumCountRepay" resultType="long" parameterType="int">
+		select count(1) from refundplan where loansId=#{loansId}
+	</select>
+
+	<!-- 还款表修改状态 -->
+	<update id="updateRepayByState" parameterType="int">
+		update refundplan set state = '已还清',time=now() where id=#{rid}
+	</update>
+	<select id="selectLoansByRepay" resultType="long" parameterType="int">
+		select count(1) from applyloans a inner join refundplan r on a.id = r.loansId 
+		where r.state !='已还清' and a.id = (select loansId from refundplan where id=#{refundpId})	
+	</select>
+	<update id="updateLoansByState" parameterType="int">
+		update applyloans set state = '已还清' where id=(select loansId from refundplan where id=#{refundplanId})
+	</update>
+
+	<!-- 还款表增加 -->
+	<insert id="insertRepayLoans" parameterType="com.lxit.p2p.bean.Refundplan">
+		insert into
+		refundplan(loansId,money,interest,periods,type,state,creationTime,lastRepayDate)
+		values(#{applyLoans.applyLoansId},#{money},#{interest},#{periods},#{returnType},#{state},Now(),DATE_ADD(#{applyLoans.loanTime},INTERVAL
+		#{lastRepayDate} DAY))
+	</insert>
+
+	<select id="selectOverdueLoans" resultType="com.lxit.p2p.bean.OverdueLoans"
+		parameterType="java.util.Map">
+		select u.id as userId,a.id as applyId,r.id as
+		repayId,a.purpose as loansTitle, round((r.money+r.interest),0) as
+		loansSumMoney,DATEDIFF(NOW(),r.lastRepayDate) as overdueDay,
+		round(((r.money+r.interest)*power(1.01,DATEDIFF(NOW(),r.lastRepayDate))-(r.money+r.interest)),0)
+		as overdueMoney,
+		round((r.money+r.interest)*power(1.01,DATEDIFF(NOW(),r.lastRepayDate)),0)
+		as lastRepayMoney
+		from `user` u INNER JOIN applyloans a on u.id =
+		a.userId INNER JOIN refundplan r
+		on r.loansId = a.id where u.id = #{userId} and
+		DATEDIFF(NOW(),r.lastRepayDate) &gt;= 1 and a.state='逾期未还'
+		limit
+		#{pageIndex},#{pageSize}
+	</select>
+	<select id="sumOverdueCount" resultType="long" parameterType="int">
+		select count(r.id) from `user` u INNER JOIN applyloans a on u.id =
+		a.userId INNER JOIN refundplan r
+		on r.loansId = a.id where u.id = #{userId} and
+		DATEDIFF(NOW(),lastRepayDate) &gt;= 1
+	</select>
+
+	<select id="queryAllLoans" resultType="com.lxit.p2p.bean.AllLoans" parameterType="int">
+		select (select round(sum(money),0)
+		from applyloans where userId=#{userId} and state='待偿还' or state = '已还清' or state = '逾期未还') as allLoansMoney,
+		(select count(1) from
+		applyloans where state = '待偿还' or state = '已还清' or state = '逾期未还' and
+		userId=1) as loansSuccessNum,
+		(select count(1) from applyloans where userId = #{userId}) as loansSumNum,
+		(select round(sum(r.money+r.interest),0) from refundplan r INNER JOIN applyloans a on
+		r.loansId = a.id INNER JOIN `user` u on a.userId = u.id where r.state
+		= '已还清' and u.id=#{userId}) as alreadyRepayMoney,
+		(select count(1) from refundplan r INNER JOIN applyloans a on r.loansId =
+		a.id INNER JOIN `user` u on a.userId = u.id where r.state = '已还清' and
+		u.id=#{userId}) as normalRepayNum,
+		(select count(1) from refundplan r INNER JOIN applyloans a on r.loansId =
+		a.id INNER JOIN `user` u on a.userId = u.id where r.state = '逾期已还' and
+		u.id=#{userId}) as improperRepayNum,
+		(select round(sum(r.money+r.interest),0) from refundplan r INNER JOIN applyloans a on
+		r.loansId = a.id INNER JOIN `user` u on a.userId = u.id where r.state
+		= '未偿还' or r.state = '逾期未还' and u.id=#{userId}) as noRepayMoney,
+		(select count(1) from applyloans where userId=#{userId} and state='待偿还') as nowRepayNum
+	</select>
+</mapper>
